@@ -328,7 +328,7 @@ class ClusterConfigHandler:
         """
         log.debug('applying changes to internal data store')
         results = ResultGroup()
-        staging = Staging(self.internal_store)
+        staging = Staging(self.internal_store, self.mgr)
         try:
             incoming = order_resources(inputs)
             for resource in incoming:
@@ -810,6 +810,7 @@ def _generate_rgw_share(conf: _ShareConf) -> Dict[str, Dict[str, str]]:
             'path': path,
             'vfs objects': 'ceph',
             'ceph:config_file': '/etc/ceph/ceph.conf',
+            'ceph:keyring_file': '/etc/ceph/ceph.client.admin.keyring',
             'ceph:rgw_bucket': rgw.bucket,
             'ceph:rgw_user_id': rgw.user_id or '',
             'ceph:rgw_access_key': rgw.access_key_id or '',

@@ -36,6 +36,7 @@ from .cephadmservice import (
 )
 from ..tlsobject_types import TLSCredentials, EMPTY_TLS_CREDENTIALS
 from ..schedule import DaemonPlacement
+from cephadm import utils
 
 if TYPE_CHECKING:
     from ..module import CephadmOrchestrator
@@ -534,7 +535,49 @@ class SMBService(CephService):
         for ccc in smb_spec.ceph_cluster_configs or []:
             value = _hash_ceph_cluster_config(ccc)
             out.append(Dep.META(f'ceph_cluster_config.{ccc.alias}', value))
+        # Add features as a dependency
+        if smb_spec.features:
+            features_hash = _hash_smb_features(smb_spec.features)
+            out.append(Dep.META('features', features_hash))
         return out
+
+
+    def choose_next_action(
+        self,
+        scheduled_action: utils.Action,
+        daemon_type: Optional[str],
+        spec: Optional[ServiceSpec],
+        curr_deps: List[str],
+        last_deps: List[str],
+    ) -> utils.Action:
+        """Determine if SMB daemon needs RECONFIG or REDEPLOY based on changes."""
+
+        if curr_deps == last_deps:
+            return scheduled_action
+
+        sym_diff = set(curr_deps).symmetric_difference(last_deps)
+        logger.info(
+            'Reconfigure wanted %s: deps %r -> %r (diff %r)',
+            spec.service_name() if spec else daemon_type,
+            last_deps,
+            curr_deps,
+            sym_diff,
+        )
+
+        # Check what changed
+        features_changed = any('features=' in s for s in sym_diff)
+
+        # Features or external clusters → need REDEPLOY (container layout changes)
+        if features_changed:
+            logger.info(
+                'SMB %s needs REDEPLOY: features_changed=%s',
+                spec.service_name() if spec else daemon_type,
+                features_changed,
+            )
+            return utils.Action.REDEPLOY
+
+        # Default: RECONFIG for other changes
+        return utils.Action.RECONFIG
 
 
 Network = Union[ipaddress.IPv4Network, ipaddress.IPv6Network]
@@ -586,6 +629,14 @@ def _hash_ceph_cluster_config(spec: SMBExternalCephCluster) -> str:
     fdg = hashlib.sha256()
     for field_name in _fields:
         fdg.update(getattr(spec, field_name, '').encode())
+    return f'sha256:{fdg.hexdigest()}'
+
+
+def _hash_smb_features(features: List[str]) -> str:
+    """Hash the SMB features list."""
+    features_str = ','.join(sorted(features))
+    fdg = hashlib.sha256()
+    fdg.update(features_str.encode())
     return f'sha256:{fdg.hexdigest()}'
 
 

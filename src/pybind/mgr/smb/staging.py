@@ -376,6 +376,20 @@ def _check_share_resource(
 
     # Handle RGW shares
     if share.rgw is not None:
+        # Check if cluster uses external Ceph cluster
+        cluster = staging.get_cluster(share.cluster_id)
+        is_external_cluster = (
+            cluster.external_ceph_cluster is not None
+            and cluster.external_ceph_cluster.ref
+        )
+
+        # RGW shares are not supported with external clusters
+        if is_external_cluster:
+            raise ErrorResult(
+                share,
+                msg="RGW shares are not supported with external ceph cluster",
+            )
+
         # If credential_ref is not provided, auto-create credential
         if not share.rgw.credential_ref:
             # Fetch credentials from RGW
